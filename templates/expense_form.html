@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="page">
+  <section class="card form-card">
+    <div class="card-head">
+      <h3>{{ "Edit Expense" if expense else "Add Expense" }}</h3>
+    </div>
+    <form method="post" class="stack">
+      <label>Amount (INR)<input type="number" name="amount" min="1" step="1" value="{{ expense.amount if expense else '' }}" required></label>
+      <label>Description<textarea name="description" rows="3" required>{{ expense.description if expense else '' }}</textarea></label>
+      <label>Date<input type="date" name="expense_date" value="{{ expense.expense_date.isoformat() if expense else today.isoformat() }}" required></label>
+      <label>Category
+        <select name="category" required>
+          {% for c in categories %}
+            <option value="{{ c }}" {% if expense and expense.category == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="split">
+        <button class="button primary" type="submit">{{ "Update Expense" if expense else "Save Expense" }}</button>
+        <a class="button ghost" href="{{ url_for('expenses') }}">Cancel</a>
+      </div>
+    </form>
+  </section>
+</main>
+{% endblock %}

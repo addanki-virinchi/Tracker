@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="page">
+  <section class="toolbar">
+    <a class="button primary sticky-add" href="{{ url_for('expense_new') }}">Add Expense</a>
+    <a class="button ghost" href="{{ url_for('expenses') }}">All Expenses</a>
+    <a class="button ghost" href="{{ url_for('reports') }}">Reports</a>
+    <a class="button ghost" href="{{ build_url('export_csv') }}">Export CSV</a>
+    <a class="button ghost" href="{{ build_url('export_xlsx') }}">Export Excel</a>
+    {% if current_user.is_admin %}
+      <a class="button ghost" href="{{ url_for('admin_users') }}">Users</a>
+      <a class="button ghost" href="{{ url_for('audit_log') }}">Audit Log</a>
+    {% endif %}
+  </section>
+
+  <section class="grid cards">
+    <article class="card metric">
+      <span>Today</span>
+      <strong>{{ totals.today | money }}</strong>
+      <small>{{ totals.today_label }}</small>
+    </article>
+    <article class="card metric">
+      <span>This Week</span>
+      <strong>{{ totals.week | money }}</strong>
+    </article>
+    <article class="card metric">
+      <span>This Month</span>
+      <strong>{{ totals.month | money }}</strong>
+    </article>
+    <article class="card metric">
+      <span>Total Lifetime</span>
+      <strong>{{ totals.total | money }}</strong>
+    </article>
+  </section>
+
+  <section class="grid charts">
+    <article class="card">
+      <div class="card-head">
+        <h3>Expense trend</h3>
+      </div>
+      <canvas id="trendChart" data-labels='{{ chart_payload.trend_labels | tojson }}' data-values='{{ chart_payload.trend_values | tojson }}'></canvas>
+    </article>
+    <article class="card">
+      <div class="card-head">
+        <h3>Category split</h3>
+      </div>
+      <canvas id="categoryChart" data-labels='{{ chart_payload.category_labels | tojson }}' data-values='{{ chart_payload.category_values | tojson }}'></canvas>
+    </article>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h3>Filter expenses</h3>
+    </div>
+    <form method="get" class="filters">
+      <label>Search <input type="text" name="q" placeholder="Description, category, user" value="{{ request.args.get('q', '') }}"></label>
+      <label>Start date <input type="date" name="start_date" value="{{ request.args.get('start_date', '') }}"></label>
+      <label>End date <input type="date" name="end_date" value="{{ request.args.get('end_date', '') }}"></label>
+      <label>Category
+        <select name="category">
+          <option value="">All</option>
+          {% for c in categories %}
+            <option value="{{ c }}" {% if request.args.get('category') == c %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Min amount <input type="number" name="min_amount" value="{{ request.args.get('min_amount', '') }}"></label>
+      <label>Max amount <input type="number" name="max_amount" value="{{ request.args.get('max_amount', '') }}"></label>
+      {% if current_user.is_admin %}
+      <label>User
+        <select name="user_id">
+          <option value="">All</option>
+          {% for user in users %}
+            <option value="{{ user.id }}" {% if request.args.get('user_id')|int == user.id %}selected{% endif %}>{{ user.username }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <button class="button primary" type="submit">Apply filters</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h3>Recent expenses</h3>
+      <a href="{{ url_for('expenses') }}">View all</a>
+    </div>
+    <div class="table-wrap">
+      <table class="expense-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Category</th>
+            <th>Description</th>
+            <th>Amount</th>
+            <th>User</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in expenses %}
+          <tr>
+            <td data-label="Date">{{ item.expense_date.strftime('%d-%b-%Y') }}</td>
+            <td data-label="Category">{{ item.category }}</td>
+            <td data-label="Description">{{ item.description }}</td>
+            <td data-label="Amount">{{ item.amount | money }}</td>
+            <td data-label="User">{{ item.username }}</td>
+            <td class="actions" data-label="Actions">
+              <a class="link" href="{{ url_for('expense_edit', expense_id=item.id) }}">Edit</a>
+              <form method="post" action="{{ url_for('expense_delete', expense_id=item.id) }}" onsubmit="return confirm('Delete this expense?')">
+                <button class="link danger" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty">No expenses yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{% endblock %}

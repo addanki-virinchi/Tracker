@@ -1,0 +1,18 @@
+# Environment / secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment
+venv/
+.venv/
+
+# Local CSV data (do not commit application data)
+data/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

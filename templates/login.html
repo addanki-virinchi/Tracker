@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="auth-layout">
+  <section class="hero-panel">
+    <p class="eyebrow">{{ "Admin access" if mode == "admin" else "User access" }}</p>
+    <h2>Track expenses, filters, reports, and audit logs from any device.</h2>
+    <p class="muted">Secure, role-based access for team members and administrators. Sign in to add expenses, review summaries, and export data for accounting.</p>
+    <div class="login-hints">
+      <div class="hint-card">
+        <span>Administrators</span>
+        <strong>Manage users, reports, and audit logs</strong>
+      </div>
+      <div class="hint-card">
+        <span>Team members</span>
+        <strong>Add and track your expenses</strong>
+      </div>
+    </div>
+  </section>
+  <section class="card auth-card">
+    <form method="post" class="stack">
+      <label>
+        Username
+        <input name="username" autocomplete="username" required>
+      </label>
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button class="button primary" type="submit">{{ "Login as admin" if mode == "admin" else "Login" }}</button>
+      {% if mode == "admin" %}
+      <a class="button ghost" href="{{ url_for('login') }}">Back to user login</a>
+      {% else %}
+      <a class="button ghost" href="{{ url_for('admin_login') }}">Admin login</a>
+      {% endif %}
+    </form>
+  </section>
+</main>
+{% endblock %}

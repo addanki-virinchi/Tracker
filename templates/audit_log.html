@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="page">
+  <section class="toolbar">
+    <a class="button ghost" href="{{ url_for('dashboard') }}">Dashboard</a>
+    <a class="button ghost" href="{{ url_for('admin_users') }}">Users</a>
+  </section>
+  <section class="card">
+    <div class="card-head">
+      <h3>Audit log</h3>
+    </div>
+    <div class="audit-list">
+      {% for entry in entries %}
+        <div class="audit-row">
+          <div>
+            <strong>{{ entry.action }}</strong>
+            <p>{{ entry.details }}</p>
+          </div>
+          <small>{{ entry.created_at.strftime('%d-%b-%Y %H:%M') }}</small>
+        </div>
+      {% else %}
+        <p class="empty">No audit entries yet.</p>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+{% endblock %}
+

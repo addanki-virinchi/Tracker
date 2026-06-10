@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="page">
+  <section class="toolbar">
+    <a class="button ghost" href="{{ url_for('dashboard') }}">Dashboard</a>
+    <a class="button ghost" href="{{ url_for('audit_log') }}">Audit Log</a>
+  </section>
+  <section class="grid two-col">
+    <article class="card">
+      <div class="card-head">
+        <h3>Create user</h3>
+      </div>
+      <form method="post" class="stack">
+        <input type="hidden" name="action" value="create">
+        <label>Username<input name="username" required></label>
+        <label>Password<input type="password" name="password" required></label>
+        <label class="checkbox"><input type="checkbox" name="is_admin"> Admin account</label>
+        <button class="button primary" type="submit">Create</button>
+      </form>
+    </article>
+    <article class="card">
+      <div class="card-head">
+        <h3>User management</h3>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for user in users %}
+            <tr>
+              <td>{{ user.username }}</td>
+              <td>{{ "Admin" if user.is_admin else "User" }}</td>
+              <td>{{ "Active" if user.is_active_account else "Inactive" }}</td>
+              <td class="actions">
+                <form method="post" class="inline-form">
+                  <input type="hidden" name="user_id" value="{{ user.id }}">
+                  <input type="hidden" name="action" value="toggle">
+                  <button class="link" type="submit">{{ "Deactivate" if user.is_active_account else "Activate" }}</button>
+                </form>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="4">
+                <form method="post" class="user-edit">
+                  <input type="hidden" name="action" value="update">
+                  <input type="hidden" name="user_id" value="{{ user.id }}">
+                  <input name="username" value="{{ user.username }}">
+                  <input type="password" name="password" placeholder="New password">
+                  <label class="checkbox"><input type="checkbox" name="is_admin" {% if user.is_admin %}checked{% endif %}> Admin</label>
+                  <label class="checkbox"><input type="checkbox" name="is_active_account" {% if user.is_active_account %}checked{% endif %}> Active</label>
+                  <button class="button ghost" type="submit">Save</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+</main>
+{% endblock %}
+

@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="home-layout">
+  <section class="hero-panel hero-home">
+    <p class="eyebrow">Expense Tracker</p>
+    <h2>Track company spending with a fast, secure, mobile-friendly tool.</h2>
+    <p class="muted">
+      Simple expense tracking for teams, with fast mobile access, insightful reports,
+      and administrator-managed user accounts.
+    </p>
+    <div class="home-actions">
+      <a class="button primary" href="{{ url_for('login') }}">User login</a>
+      <a class="button ghost" href="{{ url_for('admin_login') }}">Admin login</a>
+    </div>
+  </section>
+  <section class="grid home-stats">
+    <article class="card metric">
+      <span>Total users</span>
+      <strong>{{ user_count }}</strong>
+      <small>Created and managed by admin</small>
+    </article>
+    <article class="card metric">
+      <span>Total expenses</span>
+      <strong>{{ expense_count }}</strong>
+      <small>Tracked across your team</small>
+    </article>
+    <article class="card metric">
+      <span>Administrator</span>
+      <strong>{{ admin_user.username if admin_user else "admin" }}</strong>
+      <small>Manages users and settings</small>
+    </article>
+  </section>
+  <section class="card">
+    <div class="card-head">
+      <h3>What this app does</h3>
+    </div>
+    <div class="home-feature-list">
+      <div class="home-feature">
+        <strong>Sign in once</strong>
+        <p>Persistent login keeps the session active between visits.</p>
+      </div>
+      <div class="home-feature">
+        <strong>Admin-managed users</strong>
+        <p>The admin creates and maintains user credentials from the /admin panel.</p>
+      </div>
+      <div class="home-feature">
+        <strong>Expense reporting</strong>
+        <p>Dashboard totals, filters, charts, CSV export, and monthly reporting.</p>
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
