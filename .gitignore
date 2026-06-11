@@ -10,7 +10,7 @@ __pycache__/
 venv/
 .venv/
 
-# Local CSV data (do not commit application data)
+# Legacy local CSV data (no longer used; storage is now PostgreSQL)
 data/
 
 # OS / editor noise
