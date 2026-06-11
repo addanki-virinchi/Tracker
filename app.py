@@ -137,9 +137,11 @@ def write_rows(path: Path, fieldnames: list[str], rows: Iterable[dict[str, str]]
 
 
 def next_id(rows: list[dict[str, str]]) -> int:
-    if not rows:
+    ids = [parse_int(row.get("id")) for row in rows]
+    ids = [value for value in ids if value is not None]
+    if not ids:
         return 1
-    return max(int(row["id"]) for row in rows if row.get("id")) + 1
+    return max(ids) + 1
 
 
 def bool_str(value: bool) -> str:
@@ -157,6 +159,10 @@ def parse_int(value: str | None, default: int | None = None) -> int | None:
         return int(value)
     except ValueError:
         return default
+
+
+def parse_required_int(value: str | None) -> int | None:
+    return parse_int(value)
 
 
 def parse_date(value: str | None, default: date | None = None) -> date | None:
@@ -178,9 +184,13 @@ def get_users() -> list[AppUser]:
     rows = read_rows(USERS_CSV, USER_FIELDS)
     users: list[AppUser] = []
     for row in rows:
+        user_id = parse_required_int(row.get("id"))
+        if user_id is None:
+            app.logger.warning("Skipping malformed user row in %s: %s", USERS_CSV, row)
+            continue
         users.append(
             AppUser(
-                id=int(row["id"]),
+                id=user_id,
                 username=row["username"],
                 password_hash=row["password_hash"],
                 is_admin=parse_bool(row.get("is_admin")),
@@ -211,15 +221,26 @@ def get_expenses() -> list[ExpenseRecord]:
     rows = read_rows(EXPENSES_CSV, EXPENSE_FIELDS)
     items: list[ExpenseRecord] = []
     for row in rows:
-        user_id = int(row["user_id"])
+        expense_id = parse_required_int(row.get("id"))
+        user_id = parse_required_int(row.get("user_id"))
+        amount = parse_required_int(row.get("amount"))
+        expense_date_value = row.get("expense_date")
+        if (
+            expense_id is None
+            or user_id is None
+            or amount is None
+            or expense_date_value in (None, "")
+        ):
+            app.logger.warning("Skipping malformed expense row in %s: %s", EXPENSES_CSV, row)
+            continue
         items.append(
             ExpenseRecord(
-                id=int(row["id"]),
+                id=expense_id,
                 user_id=user_id,
-                amount=int(row["amount"]),
+                amount=amount,
                 description=row["description"],
                 category=row["category"],
-                expense_date=datetime.strptime(row["expense_date"], "%Y-%m-%d").date(),
+                expense_date=datetime.strptime(expense_date_value, "%Y-%m-%d").date(),
                 created_at=row.get("created_at", ""),
                 updated_at=row.get("updated_at", ""),
                 username=users_by_id.get(user_id).username if user_id in users_by_id else "Unknown",
@@ -250,10 +271,14 @@ def get_audit_entries() -> list[AuditEntry]:
     rows = read_rows(AUDIT_CSV, AUDIT_FIELDS)
     items: list[AuditEntry] = []
     for row in rows:
+        entry_id = parse_required_int(row.get("id"))
         actor_id = parse_int(row.get("actor_id"))
+        if entry_id is None or row.get("action") in (None, "") or row.get("details") in (None, ""):
+            app.logger.warning("Skipping malformed audit row in %s: %s", AUDIT_CSV, row)
+            continue
         items.append(
             AuditEntry(
-                id=int(row["id"]),
+                id=entry_id,
                 actor_id=actor_id,
                 action=row["action"],
                 details=row["details"],
