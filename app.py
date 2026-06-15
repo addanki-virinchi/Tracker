@@ -48,7 +48,7 @@ login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
 
-CATEGORIES = ["Food", "Travel", "Fuel", "Shopping", "Office", "Utilities", "Other"]
+CATEGORIES = ["Food", "Travel", "Finances","Hostel", "Shopping", "Office", "Utilities", "Other"]
 
 
 # ---------------------------------------------------------------------------
