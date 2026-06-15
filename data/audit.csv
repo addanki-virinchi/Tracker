@@ -1,0 +1,21 @@
+id,actor_id,action,details,created_at
+1,2,login,User user logged in,2026-06-10T17:33:07
+2,1,admin_login,Admin admin logged in,2026-06-10T18:15:01
+3,1,admin_login,Admin admin logged in,2026-06-10T18:15:17
+4,1,admin_login,Admin admin logged in,2026-06-10T18:16:57
+5,1,logout,admin logged out,2026-06-10T18:17:13
+6,1,admin_login,Admin admin logged in,2026-06-10T18:17:34
+7,1,user_created,Admin created user Addanki,2026-06-10T18:17:57
+8,1,logout,admin logged out,2026-06-10T18:18:05
+9,1,admin_login,Admin admin logged in,2026-06-10T18:18:55
+10,1,user_toggled,Admin deactivated user Addanki,2026-06-10T18:19:03
+11,1,user_created,Admin created user Addanki Virinchi,2026-06-10T18:19:26
+12,1,logout,admin logged out,2026-06-10T18:19:37
+13,4,login,User Addanki Virinchi logged in,2026-06-10T18:21:32
+14,4,expense_created,Addanki Virinchi added Rs. 232 expense: Dress,2026-06-10T18:22:47
+15,4,expense_created,Addanki Virinchi added Rs. 770 expense: Stock,2026-06-10T18:40:06
+16,4,logout,Addanki Virinchi logged out,2026-06-10T18:41:26
+17,4,login,User Addanki Virinchi logged in,2026-06-11T07:03:44
+18,1,admin_login,Admin admin logged in,2026-06-11T07:05:50
+19,1,admin_login,Admin admin logged in,2026-06-11T07:11:53
+20,1,expense_deleted,admin deleted Rs. 770 expense: Stock,2026-06-11T07:12:18

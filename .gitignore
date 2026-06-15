@@ -1,5 +1,6 @@
 # Environment / secrets
 .env
+firebase-credentials.json
 
 # Python
 __pycache__/
@@ -9,9 +10,6 @@ __pycache__/
 # Virtual environment
 venv/
 .venv/
-
-# Legacy local CSV data (no longer used; storage is now PostgreSQL)
-data/
 
 # OS / editor noise
 .DS_Store

@@ -9,7 +9,9 @@ services:
         value: 3.11.9
       - key: SECRET_KEY
         generateValue: true
-      - key: DATABASE_URL
+      - key: FIREBASE_DATABASE_URL
+        sync: false
+      - key: FIREBASE_CREDENTIALS_JSON
         sync: false
       - key: ADMIN_USERNAME
         sync: false

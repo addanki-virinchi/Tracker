@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-import csv
 import io
+import json
 import os
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
+from typing import Any
 
-import psycopg2
-import psycopg2.extras
+import firebase_admin
+from firebase_admin import credentials, db
 from dotenv import load_dotenv
 from flask import (
     Flask,
     abort,
     flash,
-    g,
     jsonify,
-    make_response,
     redirect,
     render_template,
     request,
@@ -53,117 +52,155 @@ CATEGORIES = ["Food", "Travel", "Fuel", "Shopping", "Office", "Utilities", "Othe
 
 
 # ---------------------------------------------------------------------------
-# Database connection
+# Firebase database connection
 # ---------------------------------------------------------------------------
-def database_dsn() -> str:
-    """Build the PostgreSQL connection string from the environment.
-
-    Prefers a single ``DATABASE_URL`` (the value Render exposes as the
-    "Internal Database URL" in production, or the "External Database URL" for
-    local development). Falls back to discrete ``DB_*`` variables if that is
-    not set.
-    """
-    url = os.environ.get("DATABASE_URL", "").strip()
-    if url:
-        # psycopg2 accepts "postgres://" but normalise to the canonical scheme.
-        if url.startswith("postgres://"):
-            url = "postgresql://" + url.split("://", 1)[1]
-        return url
-
-    host = os.environ.get("DB_HOST")
-    name = os.environ.get("DB_NAME")
-    user = os.environ.get("DB_USER")
-    password = os.environ.get("DB_PASSWORD")
-    port = os.environ.get("DB_PORT", "5432")
-    if not all([host, name, user, password]):
-        raise RuntimeError(
-            "Database is not configured. Set DATABASE_URL (recommended) or all of "
-            "DB_HOST, DB_NAME, DB_USER, DB_PASSWORD in the environment."
-        )
-    return f"postgresql://{user}:{password}@{host}:{port}/{name}"
+def firebase_database_url() -> str:
+    value = os.environ.get(
+        "FIREBASE_DATABASE_URL",
+        "https://personal-f48e3-default-rtdb.firebaseio.com/",
+    ).strip()
+    return value or "https://personal-f48e3-default-rtdb.firebaseio.com/"
 
 
-def connect():
-    """Open a new database connection. libpq negotiates SSL automatically."""
-    dsn = database_dsn()
-    try:
-        return psycopg2.connect(dsn)
-    except psycopg2.OperationalError as exc:
-        message = str(exc)
-        if "could not translate host name" in message or "could not connect to server" in message:
-            raise RuntimeError(
-                "DATABASE_URL is not reachable from this machine. If you copied the "
-                "Render Internal Database URL into .env, replace it with the Render "
-                "External Database URL for local development, or point DATABASE_URL "
-                "at a local PostgreSQL server."
-            ) from exc
-        raise
-
-
-def get_db():
-    """Return the per-request connection, creating it on first use."""
-    if "db" not in g:
-        g.db = connect()
-    return g.db
-
-
-def db_cursor():
-    return get_db().cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-
-def commit() -> None:
-    get_db().commit()
-
-
-@app.teardown_appcontext
-def close_db(exc=None):
-    db = g.pop("db", None)
-    if db is not None:
+def firebase_credentials_source() -> str | dict[str, Any]:
+    raw = os.environ.get("FIREBASE_CREDENTIALS_JSON", "").strip()
+    if raw:
         try:
-            if exc is not None:
-                db.rollback()
-        finally:
-            db.close()
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("FIREBASE_CREDENTIALS_JSON is not valid JSON.") from exc
+
+    path_value = os.environ.get("FIREBASE_CREDENTIALS_PATH", "").strip()
+    path = Path(path_value) if path_value else BASE_DIR / "firebase-credentials.json"
+    if not path.exists():
+        raise RuntimeError(
+            "Firebase credentials are not configured. Set FIREBASE_CREDENTIALS_JSON "
+            "or FIREBASE_CREDENTIALS_PATH to a service-account JSON file."
+        )
+    return str(path)
 
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id                SERIAL PRIMARY KEY,
-    username          TEXT NOT NULL UNIQUE,
-    password_hash     TEXT NOT NULL,
-    is_admin          BOOLEAN NOT NULL DEFAULT FALSE,
-    is_active_account BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at        TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
-);
+def initialize_firebase() -> None:
+    try:
+        firebase_admin.get_app()
+        return
+    except ValueError:
+        pass
 
-CREATE TABLE IF NOT EXISTS expenses (
-    id           SERIAL PRIMARY KEY,
-    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    amount       INTEGER NOT NULL,
-    description  TEXT NOT NULL,
-    category     TEXT NOT NULL,
-    expense_date DATE NOT NULL,
-    created_at   TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc'),
-    updated_at   TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
-);
+    cred_source = firebase_credentials_source()
+    options = {"databaseURL": firebase_database_url()}
+    firebase_admin.initialize_app(credentials.Certificate(cred_source), options)
 
-CREATE TABLE IF NOT EXISTS audit (
-    id         SERIAL PRIMARY KEY,
-    actor_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    action     TEXT NOT NULL,
-    details    TEXT NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT (now() AT TIME ZONE 'utc')
-);
 
-CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses(user_id);
-CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
-"""
+def firebase_ref(path: str = ""):
+    initialize_firebase()
+    return db.reference(path)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def serialize_datetime(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def parse_datetime_value(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        normalized = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def normalize_date(value: Any) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    return None
+
+
+def coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return parse_bool(str(value))
+
+
+def table_rows(table: str) -> list[dict[str, Any]]:
+    raw = firebase_ref(table).get() or {}
+    if isinstance(raw, list):
+        rows = [row for row in raw if isinstance(row, dict)]
+    elif isinstance(raw, dict):
+        rows = []
+        for key, value in raw.items():
+            if not isinstance(value, dict):
+                continue
+            row = dict(value)
+            row.setdefault("id", parse_int(str(key), 0) or 0)
+            rows.append(row)
+    else:
+        rows = []
+    rows.sort(key=lambda row: row.get("id", 0))
+    return rows
+
+
+def get_record(table: str, record_id: int) -> dict[str, Any] | None:
+    row = firebase_ref(f"{table}/{record_id}").get()
+    if isinstance(row, dict):
+        row.setdefault("id", record_id)
+        return row
+    return None
+
+
+def set_record(table: str, record_id: int, data: dict[str, Any]) -> None:
+    firebase_ref(f"{table}/{record_id}").set(data)
+
+
+def delete_record(table: str, record_id: int) -> None:
+    firebase_ref(f"{table}/{record_id}").delete()
+
+
+def next_record_id(table: str) -> int:
+    counter_ref = firebase_ref(f"meta/counters/{table}")
+
+    def increment(current):
+        return int(current or 0) + 1
+
+    return int(counter_ref.transaction(increment))
 
 
 def init_db() -> None:
-    cur = get_db().cursor()
-    cur.execute(SCHEMA)
-    commit()
+    initialize_firebase()
+    counters_ref = firebase_ref("meta/counters")
+    counters = counters_ref.get() or {}
+    if not isinstance(counters, dict):
+        counters = {}
+    changed = False
+    for name in ("users", "expenses", "audit"):
+        if counters.get(name) is None:
+            counters[name] = 0
+            changed = True
+    if changed:
+        counters_ref.set(counters)
 
 
 # ---------------------------------------------------------------------------
@@ -214,36 +251,36 @@ class AuditEntry:
 
 def row_to_user(row) -> AppUser:
     return AppUser(
-        id=row["id"],
+        id=parse_int(row["id"], 0) or 0,
         username=row["username"],
         password_hash=row["password_hash"],
-        is_admin=row["is_admin"],
-        is_active_account=row["is_active_account"],
-        created_at=row["created_at"],
+        is_admin=coerce_bool(row.get("is_admin")),
+        is_active_account=coerce_bool(row.get("is_active_account")),
+        created_at=parse_datetime_value(row.get("created_at")),
     )
 
 
 def row_to_expense(row) -> ExpenseRecord:
     return ExpenseRecord(
-        id=row["id"],
-        user_id=row["user_id"],
-        amount=row["amount"],
+        id=parse_int(row["id"], 0) or 0,
+        user_id=parse_int(row["user_id"], 0) or 0,
+        amount=parse_int(row["amount"], 0) or 0,
         description=row["description"],
         category=row["category"],
-        expense_date=row["expense_date"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        expense_date=normalize_date(row.get("expense_date")) or date.today(),
+        created_at=parse_datetime_value(row.get("created_at")),
+        updated_at=parse_datetime_value(row.get("updated_at")),
         username=row.get("username", ""),
     )
 
 
 def row_to_audit(row) -> AuditEntry:
     return AuditEntry(
-        id=row["id"],
-        actor_id=row["actor_id"],
+        id=parse_int(row["id"], 0) or 0,
+        actor_id=parse_int(row["actor_id"]) if row.get("actor_id") is not None else None,
         action=row["action"],
         details=row["details"],
-        created_at=row["created_at"],
+        created_at=parse_datetime_value(row.get("created_at")),
         actor_name=row.get("actor_name", "System"),
     )
 
@@ -280,38 +317,66 @@ def money(value: int | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Serialization helpers
+# ---------------------------------------------------------------------------
+def user_to_dict(user: AppUser) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "password_hash": user.password_hash,
+        "is_admin": user.is_admin,
+        "is_active_account": user.is_active_account,
+        "created_at": serialize_datetime(user.created_at) or serialize_datetime(utc_now()),
+    }
+
+
+def expense_to_dict(expense: ExpenseRecord) -> dict[str, Any]:
+    return {
+        "id": expense.id,
+        "user_id": expense.user_id,
+        "amount": expense.amount,
+        "description": expense.description,
+        "category": expense.category,
+        "expense_date": expense.expense_date.isoformat(),
+        "created_at": serialize_datetime(expense.created_at) or serialize_datetime(utc_now()),
+        "updated_at": serialize_datetime(expense.updated_at) or serialize_datetime(utc_now()),
+    }
+
+
+def audit_to_dict(entry: AuditEntry) -> dict[str, Any]:
+    return {
+        "id": entry.id,
+        "actor_id": entry.actor_id,
+        "action": entry.action,
+        "details": entry.details,
+        "created_at": serialize_datetime(entry.created_at) or serialize_datetime(utc_now()),
+    }
+
+
+# ---------------------------------------------------------------------------
 # User data access
 # ---------------------------------------------------------------------------
 def get_users() -> list[AppUser]:
-    cur = db_cursor()
-    cur.execute("SELECT * FROM users ORDER BY id")
-    return [row_to_user(row) for row in cur.fetchall()]
+    return [row_to_user(row) for row in table_rows("users")]
 
 
 def get_user_by_id(user_id: int) -> AppUser | None:
-    cur = db_cursor()
-    cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-    row = cur.fetchone()
+    row = get_record("users", user_id)
     return row_to_user(row) if row else None
 
 
 def get_user_by_username(username: str, *, is_admin: bool | None = None) -> AppUser | None:
-    cur = db_cursor()
-    if is_admin is None:
-        cur.execute("SELECT * FROM users WHERE username = %s", (username,))
-    else:
-        cur.execute(
-            "SELECT * FROM users WHERE username = %s AND is_admin = %s",
-            (username, is_admin),
-        )
-    row = cur.fetchone()
-    return row_to_user(row) if row else None
+    for user in get_users():
+        if user.username != username:
+            continue
+        if is_admin is not None and user.is_admin != is_admin:
+            continue
+        return user
+    return None
 
 
 def active_admin_count() -> int:
-    cur = db_cursor()
-    cur.execute("SELECT COUNT(*) AS count FROM users WHERE is_admin AND is_active_account")
-    return cur.fetchone()["count"]
+    return sum(1 for user in get_users() if user.is_admin and user.is_active_account)
 
 
 def insert_user(
@@ -320,72 +385,46 @@ def insert_user(
     is_admin: bool,
     is_active_account: bool = True,
 ) -> AppUser:
-    cur = db_cursor()
-    cur.execute(
-        """
-        INSERT INTO users (username, password_hash, is_admin, is_active_account)
-        VALUES (%s, %s, %s, %s)
-        RETURNING *
-        """,
-        (username, password_hash, is_admin, is_active_account),
+    user = AppUser(
+        id=next_record_id("users"),
+        username=username,
+        password_hash=password_hash,
+        is_admin=is_admin,
+        is_active_account=is_active_account,
+        created_at=utc_now(),
     )
-    row = cur.fetchone()
-    commit()
-    return row_to_user(row)
+    set_record("users", user.id, user_to_dict(user))
+    return user
 
 
 def save_user(user: AppUser) -> None:
     """Persist changes to an existing user (matched by id)."""
-    cur = db_cursor()
-    cur.execute(
-        """
-        UPDATE users
-           SET username = %s,
-               password_hash = %s,
-               is_admin = %s,
-               is_active_account = %s
-         WHERE id = %s
-        """,
-        (
-            user.username,
-            user.password_hash,
-            user.is_admin,
-            user.is_active_account,
-            user.id,
-        ),
-    )
-    commit()
+    if user.created_at is None:
+        user.created_at = utc_now()
+    set_record("users", user.id, user_to_dict(user))
 
 
 # ---------------------------------------------------------------------------
 # Expense data access
 # ---------------------------------------------------------------------------
 def get_expenses() -> list[ExpenseRecord]:
-    cur = db_cursor()
-    cur.execute(
-        """
-        SELECT e.*, COALESCE(u.username, 'Unknown') AS username
-          FROM expenses e
-          LEFT JOIN users u ON u.id = e.user_id
-         ORDER BY e.id
-        """
-    )
-    return [row_to_expense(row) for row in cur.fetchall()]
+    users = {user.id: user.username for user in get_users()}
+    expenses = []
+    for row in table_rows("expenses"):
+        record = row_to_expense(row)
+        record.username = users.get(record.user_id, "Unknown")
+        expenses.append(record)
+    return expenses
 
 
 def get_expense_by_id(expense_id: int) -> ExpenseRecord | None:
-    cur = db_cursor()
-    cur.execute(
-        """
-        SELECT e.*, COALESCE(u.username, 'Unknown') AS username
-          FROM expenses e
-          LEFT JOIN users u ON u.id = e.user_id
-         WHERE e.id = %s
-        """,
-        (expense_id,),
-    )
-    row = cur.fetchone()
-    return row_to_expense(row) if row else None
+    row = get_record("expenses", expense_id)
+    if row is None:
+        return None
+    expense = row_to_expense(row)
+    user = get_user_by_id(expense.user_id)
+    expense.username = user.username if user else "Unknown"
+    return expense
 
 
 def insert_expense(
@@ -395,80 +434,64 @@ def insert_expense(
     category: str,
     expense_date: date,
 ) -> ExpenseRecord:
-    cur = db_cursor()
-    cur.execute(
-        """
-        INSERT INTO expenses (user_id, amount, description, category, expense_date)
-        VALUES (%s, %s, %s, %s, %s)
-        RETURNING *
-        """,
-        (user_id, amount, description, category, expense_date),
+    user = get_user_by_id(user_id)
+    expense = ExpenseRecord(
+        id=next_record_id("expenses"),
+        user_id=user_id,
+        amount=amount,
+        description=description,
+        category=category,
+        expense_date=expense_date,
+        created_at=utc_now(),
+        updated_at=utc_now(),
+        username=user.username if user else "Unknown",
     )
-    row = cur.fetchone()
-    commit()
-    return row_to_expense(row)
+    set_record("expenses", expense.id, expense_to_dict(expense))
+    return expense
 
 
 def save_expense_record(expense: ExpenseRecord) -> None:
     """Persist changes to an existing expense (matched by id)."""
-    cur = db_cursor()
-    cur.execute(
-        """
-        UPDATE expenses
-           SET amount = %s,
-               description = %s,
-               category = %s,
-               expense_date = %s,
-               updated_at = (now() AT TIME ZONE 'utc')
-         WHERE id = %s
-        """,
-        (
-            expense.amount,
-            expense.description,
-            expense.category,
-            expense.expense_date,
-            expense.id,
-        ),
-    )
-    commit()
+    if expense.created_at is None:
+        expense.created_at = utc_now()
+    expense.updated_at = utc_now()
+    set_record("expenses", expense.id, expense_to_dict(expense))
 
 
 def delete_expense_record(expense_id: int) -> ExpenseRecord | None:
-    cur = db_cursor()
-    cur.execute("DELETE FROM expenses WHERE id = %s RETURNING *", (expense_id,))
-    row = cur.fetchone()
-    commit()
-    return row_to_expense(row) if row else None
+    row = get_record("expenses", expense_id)
+    if row is None:
+        return None
+    delete_record("expenses", expense_id)
+    expense = row_to_expense(row)
+    user = get_user_by_id(expense.user_id)
+    expense.username = user.username if user else "Unknown"
+    return expense
 
 
 # ---------------------------------------------------------------------------
 # Audit data access
 # ---------------------------------------------------------------------------
 def get_audit_entries(limit: int = 200) -> list[AuditEntry]:
-    cur = db_cursor()
-    cur.execute(
-        """
-        SELECT a.*, COALESCE(u.username, 'System') AS actor_name
-          FROM audit a
-          LEFT JOIN users u ON u.id = a.actor_id
-         ORDER BY a.id DESC
-         LIMIT %s
-        """,
-        (limit,),
-    )
-    return [row_to_audit(row) for row in cur.fetchall()]
+    users = {user.id: user.username for user in get_users()}
+    entries = []
+    for row in sorted(table_rows("audit"), key=lambda item: item.get("id", 0), reverse=True)[:limit]:
+        entry = row_to_audit(row)
+        entry.actor_name = users.get(entry.actor_id, "System") if entry.actor_id is not None else "System"
+        entries.append(entry)
+    return entries
 
 
 def log_action(action: str, details: str, actor_id: int | None = None) -> None:
-    cur = db_cursor()
-    cur.execute(
-        """
-        INSERT INTO audit (actor_id, action, details)
-        VALUES (%s, %s, %s)
-        """,
-        (actor_id, action, details[:500]),
+    entry = AuditEntry(
+        id=next_record_id("audit"),
+        actor_id=actor_id,
+        action=action,
+        details=details[:500],
+        created_at=utc_now(),
+        actor_name="System",
     )
-    commit()
+    set_record("audit", entry.id, audit_to_dict(entry))
 
 
 # ---------------------------------------------------------------------------
@@ -839,30 +862,6 @@ def reports():
     breakdown = monthly_breakdown(month_items)
     total = sum(breakdown.values())
     return render_template("reports.html", breakdown=breakdown, total=total)
-
-
-@app.route("/export/csv")
-@login_required
-def export_csv():
-    items = sorted(filter_expenses(current_expenses()), key=lambda e: (e.expense_date, e.id), reverse=True)
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(["ID", "Date", "Category", "Description", "Amount", "User"])
-    for row in items:
-        writer.writerow(
-            [
-                row.id,
-                row.expense_date.isoformat(),
-                row.category,
-                row.description,
-                row.amount,
-                row.username,
-            ]
-        )
-    response = make_response(buffer.getvalue())
-    response.headers["Content-Type"] = "text/csv"
-    response.headers["Content-Disposition"] = "attachment; filename=expenses.csv"
-    return response
 
 
 @app.route("/export/xlsx")
