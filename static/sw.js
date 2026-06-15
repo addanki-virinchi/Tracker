@@ -1,8 +1,8 @@
-const CACHE_NAME = "expense-tracker-v1";
-const ASSETS = ["/", "/login", "/dashboard", "/static/styles.css", "/static/app.js", "/manifest.json"];
+const CACHE_NAME = "expense-tracker-v2";
+const STATIC_ASSETS = ["/static/styles.css", "/static/app.js", "/manifest.json"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (event) => {
@@ -10,6 +10,13 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+  const { request } = event;
+  // For HTML navigation requests always go to the network so Flask serves fresh content.
+  if (request.mode === "navigate" || request.headers.get("Accept")?.includes("text/html")) {
+    event.respondWith(fetch(request));
+    return;
+  }
+  // For static assets use cache-first.
+  event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
 });
 
